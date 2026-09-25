@@ -8,11 +8,14 @@ class DiscoveryService {
             googleMaps:
                 GoogleMapsSource,
         };
+
+        this.maxAreas = 3;
     }
 
     async search({
         keyword,
         location,
+        areas = [],
         sources = ["googleMaps"],
     }) {
 
@@ -43,35 +46,124 @@ class DiscoveryService {
             );
         }
 
+        if (
+            !Array.isArray(areas)
+        ) {
+            throw new Error(
+                "areas must be an array"
+            );
+        }
+
+        const cleanKeyword =
+            keyword.trim();
+
+        const cleanLocation =
+            location.trim();
+
+        const cleanAreas =
+            areas
+                .map((area) =>
+                    typeof area === "string"
+                        ? area.trim()
+                        : ""
+                )
+                .filter(Boolean);
+
+        if (
+            cleanAreas.length >
+            this.maxAreas
+        ) {
+            throw new Error(
+                `A maximum of ${this.maxAreas} areas can be searched at once`
+            );
+        }
+
+        /*
+         * ------------------------------------------------------------
+         * Build discovery targets
+         * ------------------------------------------------------------
+         *
+         * No areas:
+         *   garages in Ahmedabad
+         *
+         * Areas:
+         *   garages in Bopal, Ahmedabad
+         *   garages in Satellite, Ahmedabad
+         *   garages in Gota, Ahmedabad
+         *
+         * Keeping this logic here means the Google Maps source itself
+         * does not need to know anything about manual area selection.
+         * ------------------------------------------------------------
+         */
+
+        const targets =
+            cleanAreas.length > 0
+                ? cleanAreas.map((area) => ({
+                    location:
+                        `${area}, ${cleanLocation}`,
+                    area,
+                }))
+                : [
+                    {
+                        location:
+                            cleanLocation,
+                        area: null,
+                    },
+                ];
+
         const results = [];
 
         for (
-            const sourceName
-            of sources
+            const target
+            of targets
         ) {
 
-            const source =
-                this.sources[sourceName];
-
-            if (!source) {
-
-                throw new Error(
-                    `Unsupported discovery source: ${sourceName}`
-                );
-            }
-
-            const sourceResults =
-                await source.search(
-                    keyword.trim(),
-                    location.trim()
-                );
-
-            if (
-                Array.isArray(sourceResults)
+            for (
+                const sourceName
+                of sources
             ) {
 
+                const source =
+                    this.sources[sourceName];
+
+                if (!source) {
+
+                    throw new Error(
+                        `Unsupported discovery source: ${sourceName}`
+                    );
+                }
+
+                const sourceResults =
+                    await source.search(
+                        cleanKeyword,
+                        target.location
+                    );
+
+                if (
+                    !Array.isArray(
+                        sourceResults
+                    )
+                ) {
+                    continue;
+                }
+
+                /*
+                 * Attach the manually selected area to every
+                 * business discovered from this target.
+                 *
+                 * When no area was provided, area remains null.
+                 */
+                const resultsWithArea =
+                    sourceResults.map(
+                        (business) => ({
+                            ...business,
+                            area:
+                                target.area,
+                        })
+                    );
+
                 results.push(
-                    ...sourceResults
+                    ...resultsWithArea
                 );
             }
         }

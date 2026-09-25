@@ -7,34 +7,83 @@ import UserModel from "../models/user.model.js";
 class BusinessController {
 
     // Search Businesses
-    async searchBusinesses(req, res) {
+// Search Businesses
+async searchBusinesses(req, res) {
 
-        try {
+    try {
 
-            const { keyword, location } = req.body;
+        const {
+            keyword,
+            location,
+            areas = [],
+        } = req.body;
 
-            if (!keyword || !location) {
+        if (!keyword || !location) {
 
-                return res.status(400).json({
-                    success: false,
-                    message: "keyword and location are required."
-                });
+            return res.status(400).json({
+                success: false,
+                message: "keyword and location are required."
+            });
 
-            }
+        }
 
-             const { userId } =
+        /*
+         * Areas are optional.
+         *
+         * No areas:
+         * {
+         *     keyword: "garages",
+         *     location: "Ahmedabad"
+         * }
+         *
+         * With areas:
+         * {
+         *     keyword: "garages",
+         *     location: "Ahmedabad",
+         *     areas: ["Bopal", "Satellite", "Gota"]
+         * }
+         */
+
+        if (!Array.isArray(areas)) {
+
+            return res.status(400).json({
+                success: false,
+                message: "areas must be an array."
+            });
+
+        }
+
+        if (areas.length > 3) {
+
+            return res.status(400).json({
+                success: false,
+                message: "A maximum of 3 areas can be searched at once."
+            });
+
+        }
+
+        const cleanAreas =
+            areas
+                .map((area) =>
+                    typeof area === "string"
+                        ? area.trim()
+                        : ""
+                )
+                .filter(Boolean);
+
+        const { userId } =
             getAuth(req);
 
-           if (!userId) {
+        if (!userId) {
 
             return res.status(401).json({
                 success: false,
                 message: "Unauthorized."
             });
 
-            }
+        }
 
-             const user =
+        const user =
             await UserModel.getUserByClerkId(
                 userId
             );
@@ -47,59 +96,68 @@ class BusinessController {
             });
 
         }
-            // Common Workflow — scrapes Google Maps, returns discovery data
-            const businesses =
-                await CommonWorkflowService.searchBusinesses(
-                    keyword,
-                    location
-                );
 
-            // Save Businesses — ONE bulk upsert instead of looping
-            // createBusiness() per row. Looping meant 40-60 separate DB
-            // round-trips per search AND would throw once the unique
-            // constraint exists (since createBusiness's ON CONFLICT
-            // path is still correct per-row, the bulk version is just
-            // far more efficient for "many businesses at once").
-            const businessesWithUserId = businesses.map((business) => ({
+        // Common Workflow — discovery + relevance filtering
+        const businesses =
+            await CommonWorkflowService.searchBusinesses(
+                keyword,
+                location,
+                cleanAreas
+            );
+
+        // Save Businesses
+        const businessesWithUserId =
+            businesses.map((business) => ({
                 user_id: user.id,
                 ...business
             }));
 
+        console.time("Database Save");
 
-           console.time("Database Save");
+        const savedBusinesses =
+            await BusinessModel.createBusinesses(
+                businessesWithUserId
+            );
 
-const savedBusinesses =
-    await BusinessModel.createBusinesses(
-        businessesWithUserId
-    );
+        await BusinessModel.createSearchHistory(
+            user.id,
+            keyword.trim(),
+            location.trim(),
+            savedBusinesses.length,
+            cleanAreas
+        );
 
-    await BusinessModel.createSearchHistory(
-    user.id,
-    keyword.trim(),
-    location.trim(),
-    savedBusinesses.length
-);
-  
+        console.timeEnd("Database Save");
 
-console.timeEnd("Database Save");
-            return res.status(200).json({
-                success: true,
-                count: savedBusinesses.length,
-                businesses: savedBusinesses
-            });
+        return res.status(200).json({
+            success: true,
 
-        } catch (error) {
+            search: {
+                keyword: keyword.trim(),
+                location: location.trim(),
+                areas: cleanAreas,
+            },
 
-            console.error("Search Businesses Error:", error);
+            count: savedBusinesses.length,
 
-            return res.status(500).json({
-                success: false,
-                message: "Internal Server Error."
-            });
+            businesses: savedBusinesses
+        });
 
-        }
+    } catch (error) {
+
+        console.error(
+            "Search Businesses Error:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error."
+        });
 
     }
+
+}
 
     // Get all businesses
     async getBusinesses(req, res) {

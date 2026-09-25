@@ -1226,7 +1226,8 @@ class CommonWorkflowService {
 
     async searchBusinesses(
         keyword,
-        location
+        location,
+        areas = []
     ) {
 
         if (
@@ -1247,24 +1248,34 @@ class CommonWorkflowService {
             );
         }
 
+        if (
+            !Array.isArray(areas)
+        ) {
+            throw new Error(
+                "areas must be an array"
+            );
+        }
+
         const cleanKeyword =
             keyword.trim();
 
         const cleanLocation =
             location.trim();
 
+        const cleanAreas =
+            areas
+                .map((area) =>
+                    typeof area === "string"
+                        ? area.trim()
+                        : ""
+                )
+                .filter(Boolean);
+
         console.time(
             "[CommonWorkflow] Business Search"
         );
 
         try {
-
-            /*
-             * ---------------------------------------------------------
-             * STEP 1
-             * Discover businesses from configured sources.
-             * ---------------------------------------------------------
-             */
 
             const discoveredBusinesses =
                 await DiscoveryService.search({
@@ -1273,6 +1284,9 @@ class CommonWorkflowService {
 
                     location:
                         cleanLocation,
+
+                    areas:
+                        cleanAreas,
                 });
 
             console.log(
@@ -1280,13 +1294,14 @@ class CommonWorkflowService {
             );
 
             /*
-             * ---------------------------------------------------------
-             * STEP 2
-             * Remove businesses that aren't relevant to the
-             * requested keyword/location.
-             * ---------------------------------------------------------
+             * Keep the existing relevance engine.
+             *
+             * The discovery layer is responsible for finding
+             * businesses and attaching their selected area.
+             *
+             * The relevance layer remains responsible for
+             * deciding whether those businesses match the search.
              */
-
             const relevantBusinesses =
                 RelevanceService.filterBusinesses(
                     discoveredBusinesses,
@@ -1321,10 +1336,9 @@ class CommonWorkflowService {
             );
         }
 
-        return EnrichmentService
-            .getBusinessContact(
-                googleMapsLink.trim()
-            );
+        return EnrichmentService.getBusinessContact(
+            googleMapsLink.trim()
+        );
     }
 }
 

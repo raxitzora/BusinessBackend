@@ -282,6 +282,83 @@ function calculateLocationScore(
         return 0;
     }
 
+    /*
+     * When discovery was performed using a manually
+     * selected area, use that area as the primary
+     * geographic relevance signal.
+     *
+     * Example:
+     *
+     * business.area = "Bopal"
+     * location = "Ahmedabad"
+     *
+     * We first evaluate Bopal rather than requiring
+     * the business address to literally contain
+     * "Ahmedabad".
+     */
+    const normalizedArea =
+        normalizeSearchText(
+            business.area
+        );
+
+    if (normalizedArea) {
+
+        const address =
+            normalizeSearchText(
+                business.address
+            );
+
+        if (!address) {
+            return 15;
+        }
+
+        if (
+            address.includes(
+                normalizedArea
+            )
+        ) {
+            return 30;
+        }
+
+        const areaTokens =
+            getSearchTokens(
+                business.area
+            );
+
+        const matchedAreaTokens =
+            areaTokens.filter(
+                (token) =>
+                    address.includes(token)
+            );
+
+        if (
+            matchedAreaTokens.length ===
+            areaTokens.length
+        ) {
+            return 30;
+        }
+
+        if (
+            matchedAreaTokens.length > 0
+        ) {
+            return 20;
+        }
+
+        /*
+         * Google Maps performed the actual
+         * geographic filtering, so don't reject
+         * the result simply because the scraped
+         * address doesn't contain the area text.
+         */
+        return 10;
+    }
+
+    /*
+     * Existing city/location behaviour.
+     *
+     * This keeps searches without manually
+     * selected areas working exactly as before.
+     */
     const address =
         normalizeSearchText(
             business.address
