@@ -125,6 +125,32 @@ class BusinessModel {
         return result.rows[0];
 
     }
+    // ================================
+// Get Business By Google Maps Link
+// ================================
+
+async getBusinessByGoogleMapsLink(
+    googleMapsLink,
+    userId
+) {
+
+    const result =
+        await pool.query(
+            `
+                SELECT *
+                FROM businesses
+                WHERE google_maps_link = $1
+                AND user_id = $2
+                LIMIT 1
+            `,
+            [
+                googleMapsLink,
+                userId
+            ]
+        );
+
+    return result.rows[0] || null;
+}
 
 
     // ================================
@@ -290,43 +316,53 @@ class BusinessModel {
     // ================================
     // Update Contact Information
     // ================================
-    async updateBusinessContact(
-        id,
-        contact
-    ) {
+  // ================================
+// Update Contact Information
+// ================================
+async updateBusinessContact(id, contact) {
+    const result = await pool.query(
+        `
+        UPDATE businesses
+        SET
+            phone = $1,
+            email = $2,
+            website = $3,
+            instagram = $4,
+            facebook = $5,
+            linkedin = $6
+        WHERE id = $7
+        RETURNING *;
+        `,
+        [
+            contact.phone || null,
+            contact.email || null,
+            contact.website || null,
+            contact.instagram || null,
+            contact.facebook || null,
+            contact.linkedin || null,
+            id
+        ]
+    );
 
-        const result =
-            await pool.query(
-                `
-                UPDATE businesses
+    return result.rows[0];
+}
 
-                SET
 
-                phone = $1,
-                email = $2,
-                website = $3,
-                instagram = $4,
-                facebook = $5,
-                linkedin = $6
 
-                WHERE id = $7
 
-                RETURNING *;
-                `,
-                [
-                    contact.phone,
-                    contact.email,
-                    contact.website,
-                    contact.instagram,
-                    contact.facebook,
-                    contact.linkedin,
-                    id
-                ]
-            );
 
-        return result.rows[0];
 
-    }
+
+
+
+
+
+
+
+
+
+
+
 
 
     // ================================
@@ -350,11 +386,12 @@ class BusinessModel {
 
             try {
 
-                if (
-                    business.website
-                ) {
-                    continue;
-                }
+           if (
+    business.phone &&
+    business.website
+) {
+    continue;
+}
 
                 console.log(
                     `Enriching: ${business.business_name}`
@@ -437,6 +474,11 @@ class BusinessModel {
     }
 
 
+
+
+
+
+
     // ================================
     // Get Search History
     // ================================
@@ -469,6 +511,66 @@ class BusinessModel {
         return result.rows;
 
     }
+        // ================================
+    // Get Search History By ID
+    // ================================
+    async getSearchHistoryById(
+        searchId,
+        userId
+    ) {
+
+        const result =
+            await pool.query(
+                `
+                SELECT
+                    id,
+                    keyword,
+                    location,
+                    areas,
+                    businesses_found,
+                    created_at
+
+                FROM search_history
+
+                WHERE id = $1
+                AND user_id = $2
+
+                LIMIT 1;
+                `,
+                [
+                    searchId,
+                    userId
+                ]
+            );
+
+        return result.rows[0] || null;
+
+    }
+// ================================
+// Update Business Website Only
+// ================================
+async updateBusinessWebsite(
+    id,
+    website
+) {
+
+    const result =
+        await pool.query(
+            `
+            UPDATE businesses
+            SET website = $1
+            WHERE id = $2
+            RETURNING *;
+            `,
+            [
+                website || null,
+                id,
+            ]
+        );
+
+    return result.rows[0];
+
+}
 
 
     // ================================
@@ -493,5 +595,6 @@ class BusinessModel {
     }
 
 }
+
 
 export default new BusinessModel();

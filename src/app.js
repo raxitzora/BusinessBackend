@@ -9,9 +9,11 @@ import serviceRoutes from "./routes/service.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 
+
 // Testing
 import websiteAnalysisRoutes from "./routes/websiteAnalysis.routes.js";
 import digitalMarketingAnalysisRoutes from "./routes/digitalMarketingAnalysis.routes.js";
+import seoAnalysisRoutes from "./routes/seoAnalysis.routes.js";
 
 const app = express();
 
@@ -23,7 +25,7 @@ const app = express();
 
 const allowedOrigins = [
     "http://localhost:5173",
-    "https://leadflow-murex-six.vercel.app",
+    "https://fyndyrix.vercel.app",
 ];
 
 app.use(
@@ -122,6 +124,10 @@ app.use(
     digitalMarketingAnalysisRoutes
 );
 
+app.use(
+    "/api/seo-analysis",
+    seoAnalysisRoutes
+);
 /*
 |--------------------------------------------------------------------------
 | Error Middleware

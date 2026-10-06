@@ -1,6 +1,5 @@
 import scraperConfig from "../shared/config.js";
 import browserManager from "../shared/browser.js";
-import { randomDelay } from "../shared/utils.js";
 
 class EnrichmentService {
 
@@ -8,23 +7,15 @@ class EnrichmentService {
         this.contactCache = new Map();
     }
 
-    async getBusinessContact(
-        googleMapsLink
-    ) {
+    async getBusinessContact(googleMapsLink) {
 
         if (!googleMapsLink) {
-            throw new Error(
-                "googleMapsLink is required"
-            );
+            throw new Error("googleMapsLink is required");
         }
 
-        const cached =
-            this.readFromCache(
-                googleMapsLink
-            );
+        const cached = this.readFromCache(googleMapsLink);
 
         if (cached) {
-
             console.log(
                 `[Enrichment] Cache hit for ${googleMapsLink}`
             );
@@ -36,9 +27,7 @@ class EnrichmentService {
             await browserManager.createIsolatedContext();
 
         try {
-
-            const page =
-                await context.newPage();
+            const page = await context.newPage();
 
             const detailInfo =
                 await this.getDetailPanelInfo(
@@ -47,13 +36,9 @@ class EnrichmentService {
                 );
 
             const result = {
-                phone:
-                    detailInfo?.phone ||
-                    null,
-
-                website:
-                    detailInfo?.website ||
-                    null,
+                phone: detailInfo?.phone || null,
+                website: detailInfo?.website || null,
+                websiteExists: Boolean(detailInfo?.website),
             };
 
             this.writeToCache(
@@ -64,7 +49,6 @@ class EnrichmentService {
             return result;
 
         } finally {
-
             await context.close();
         }
     }
@@ -77,99 +61,49 @@ class EnrichmentService {
         await page.goto(
             googleMapsLink,
             {
-                waitUntil:
-                    "domcontentloaded",
-
-                timeout:
-                    scraperConfig.navigationTimeoutMs,
+                waitUntil: "domcontentloaded",
+                timeout: scraperConfig.navigationTimeoutMs,
             }
         );
 
-        await randomDelay(
-            1000,
-            1800
-        );
-
-        await this.waitForAnySelector(
-            page,
-            ["h1.DUwDvf"],
-            10000
-        ).catch(() => null);
-
-        return await page.evaluate(
-            () => {
-
-                const phoneButton =
-                    document.querySelector(
-                        "button[data-item-id^='phone:tel:']"
-                    );
-
-                const phoneRaw =
-                    phoneButton
-                        ? phoneButton.getAttribute(
-                            "aria-label"
-                        )
-                        : null;
-
-                const phone =
-                    phoneRaw
-                        ? phoneRaw.replace(
-                            /^Phone:\s*/i,
-                            ""
-                        )
-                        : null;
-
-                const websiteLink =
-                    document.querySelector(
-                        "a[data-item-id='authority']"
-                    );
-
-                const website =
-                    websiteLink
-                        ? websiteLink.href
-                        : null;
-
-                return {
-                    phone,
-                    website,
-                };
+        await page.waitForLoadState(
+            "networkidle",
+            {
+                timeout: 5000,
             }
-        );
-    }
+        ).catch(() => {});
 
-    async waitForAnySelector(
-        page,
-        selectors,
-        timeout = 15000
-    ) {
+        return await page.evaluate(() => {
 
-        for (
-            const selector
-            of selectors
-        ) {
+            const phoneButton =
+                document.querySelector(
+                    "button[data-item-id^='phone:tel:']"
+                );
 
-            try {
+            const phoneRaw =
+                phoneButton?.getAttribute("aria-label");
 
-                const locator =
-                    page
-                        .locator(selector)
-                        .first();
+            const phone =
+                phoneRaw
+                    ? phoneRaw.replace(
+                        /^Phone:\s*/i,
+                        ""
+                    )
+                    : null;
 
-                await locator.waitFor({
-                    state: "visible",
-                    timeout,
-                });
+            const websiteLink =
+                document.querySelector(
+                    "a[data-item-id='authority']"
+                );
 
-                return locator;
+            const website =
+                websiteLink?.href || null;
 
-            } catch {
-                // Try next selector.
-            }
-        }
-
-        throw new Error(
-            `None of these selectors appeared on the page:\n${selectors.join("\n")}`
-        );
+            return {
+                phone,
+                website,
+            };
+        });
     }
 
     readFromCache(key) {
@@ -181,25 +115,15 @@ class EnrichmentService {
             return null;
         }
 
-        if (
-            Date.now() >
-            entry.expiresAt
-        ) {
-
-            this.contactCache.delete(
-                key
-            );
-
+        if (Date.now() > entry.expiresAt) {
+            this.contactCache.delete(key);
             return null;
         }
 
         return entry.data;
     }
 
-    writeToCache(
-        key,
-        data
-    ) {
+    writeToCache(key, data) {
 
         this.contactCache.set(
             key,

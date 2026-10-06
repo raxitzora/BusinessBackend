@@ -1,27 +1,206 @@
 class TechStackService {
+
     async analyze(page, response) {
+
+        const data =
+            await page.evaluate(() => {
+
+                const scripts =
+                    Array.from(
+                        document.querySelectorAll(
+                            "script[src]"
+                        )
+                    ).map(
+                        (script) =>
+                            script.src
+                    );
+
+                const stylesheets =
+                    Array.from(
+                        document.querySelectorAll(
+                            "link[href]"
+                        )
+                    ).map(
+                        (link) =>
+                            link.href
+                    );
+
+                const inlineScripts =
+                    Array.from(
+                        document.querySelectorAll(
+                            "script:not([src])"
+                        )
+                    ).map(
+                        (script) =>
+                            script.textContent || ""
+                    );
+
+                const meta =
+                    Array.from(
+                        document.querySelectorAll(
+                            "meta"
+                        )
+                    ).map(
+                        (element) => ({
+                            name:
+                                element
+                                    .getAttribute(
+                                        "name"
+                                    ) || "",
+
+                            property:
+                                element
+                                    .getAttribute(
+                                        "property"
+                                    ) || "",
+
+                            content:
+                                element
+                                    .getAttribute(
+                                        "content"
+                                    ) || "",
+                        })
+                    );
+
+                const resourceUrls =
+                    performance
+                        .getEntriesByType(
+                            "resource"
+                        )
+                        .map(
+                            (entry) =>
+                                entry.name
+                        );
+
+                const html =
+                    document.documentElement
+                        .outerHTML;
+
+                const attributes =
+                    Array.from(
+                        document.querySelectorAll(
+                            "*"
+                        )
+                    )
+                        .slice(0, 5000)
+                        .flatMap(
+                            (element) =>
+                                Array.from(
+                                    element.attributes
+                                ).map(
+                                    (attribute) =>
+                                        `${attribute.name}=${attribute.value}`
+                                )
+                        );
+
+                const domMarkers = {
+                    react:
+                        Object.keys(
+                            document.body || {}
+                        ).some(
+                            (key) =>
+                                key.startsWith(
+                                    "__react"
+                                )
+                        ),
+
+                    vue:
+                        Object.keys(
+                            document.body || {}
+                        ).some(
+                            (key) =>
+                                key.startsWith(
+                                    "__vue"
+                                )
+                        ),
+
+                    angular:
+                        Boolean(
+                            document.querySelector(
+                                "[ng-version], [ng-app], [_nghost]"
+                            )
+                        ),
+
+                    svelte:
+                        Boolean(
+                            document.querySelector(
+                                "[class*='svelte-']"
+                            )
+                        ),
+                };
+
+                return {
+                    html,
+                    scripts,
+                    stylesheets,
+                    inlineScripts,
+                    meta,
+                    resourceUrls,
+                    attributes,
+                    domMarkers,
+                };
+            });
+
         const html =
-            (await page.content()).toLowerCase();
+            String(
+                data.html || ""
+            ).toLowerCase();
 
         const scripts =
-            await page.$$eval(
-                "script",
-                (elements) =>
-                    elements
-                        .map((script) =>
-                            script.src.toLowerCase()
-                        )
+            this.normalize(
+                data.scripts
+            );
+
+        const stylesheets =
+            this.normalize(
+                data.stylesheets
+            );
+
+        const inlineScripts =
+            this.normalize(
+                data.inlineScripts
+            );
+
+        const resourceUrls =
+            this.normalize(
+                data.resourceUrls
+            );
+
+        const attributes =
+            this.normalize(
+                data.attributes
             );
 
         const headers =
-            Object.fromEntries(
-                Object.entries(
-                    response.headers()
-                ).map(([key, value]) => [
-                    key.toLowerCase(),
-                    String(value).toLowerCase(),
-                ])
+            this.normalizeHeaders(
+                response
             );
+
+        const meta =
+            data.meta || [];
+
+        const metaText =
+            meta
+                .map(
+                    (item) =>
+                        `${item.name} ${item.property} ${item.content}`
+                )
+                .join(" ")
+                .toLowerCase();
+
+        const allScripts =
+            [
+                ...scripts,
+                ...inlineScripts,
+                ...resourceUrls,
+            ];
+
+        const allResources =
+            [
+                ...scripts,
+                ...stylesheets,
+                ...resourceUrls,
+            ];
 
         const result = {
             frontend: [],
@@ -35,347 +214,910 @@ class TechStackService {
         this.detectFrontend(
             result,
             html,
-            scripts
+            scripts,
+            allResources,
+            attributes,
+            metaText,
+            data.domMarkers
         );
 
         this.detectCMS(
             result,
             html,
-            scripts
+            scripts,
+            allResources,
+            metaText
         );
 
         this.detectCSS(
             result,
             html,
-            scripts
+            stylesheets,
+            allResources,
+            attributes
         );
 
         this.detectAnalytics(
             result,
-            scripts
+            allScripts,
+            html
         );
 
         this.detectHosting(
             result,
-            headers
+            headers,
+            allResources
         );
 
         this.detectBackend(
             result,
-            headers
+            headers,
+            html,
+            allResources,
+            metaText
+        );
+
+        this.removeDuplicates(
+            result
         );
 
         return result;
     }
 
-    detectFrontend(result, html, scripts) {
-        // React
+    normalize(values = []) {
+
+        return values
+            .filter(Boolean)
+            .map(
+                (value) =>
+                    String(value)
+                        .toLowerCase()
+            );
+    }
+
+    normalizeHeaders(response) {
+
         if (
-            html.includes("__react") ||
-            html.includes("_reactroot") ||
-            html.includes("react") ||
-            scripts.some((src) =>
-                src.includes("react")
+            !response ||
+            typeof response.headers !==
+                "function"
+        ) {
+            return {};
+        }
+
+        return Object.fromEntries(
+            Object.entries(
+                response.headers()
+            ).map(
+                ([key, value]) => [
+                    key.toLowerCase(),
+                    String(value).toLowerCase(),
+                ]
+            )
+        );
+    }
+
+    hasAny(
+        values,
+        patterns
+    ) {
+
+        return patterns.some(
+            (pattern) =>
+                values.some(
+                    (value) =>
+                        value.includes(
+                            pattern
+                        )
+                )
+        );
+    }
+
+    htmlHas(
+        html,
+        patterns
+    ) {
+
+        return patterns.some(
+            (pattern) =>
+                html.includes(
+                    pattern
+                )
+        );
+    }
+
+    add(
+        result,
+        category,
+        technology
+    ) {
+
+        if (
+            !result[category].includes(
+                technology
             )
         ) {
-            result.frontend.push("React");
+            result[category].push(
+                technology
+            );
         }
+    }
+
+    detectFrontend(
+        result,
+        html,
+        scripts,
+        resources,
+        attributes,
+        metaText,
+        domMarkers
+    ) {
 
         // Next.js
         if (
-            html.includes("__next") ||
-            html.includes("/_next/") ||
-            scripts.some((src) =>
-                src.includes("/_next/")
+            this.htmlHas(
+                html,
+                [
+                    "__next",
+                    "/_next/",
+                    "self.__next_f",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "/_next/",
+                    "_next/static",
+                ]
             )
         ) {
-            result.frontend.push("Next.js");
-        }
-
-        // Vue
-        if (
-            html.includes("data-v-") ||
-            html.includes("__vue__") ||
-            scripts.some((src) =>
-                src.includes("vue")
-            )
-        ) {
-            result.frontend.push("Vue.js");
+            this.add(
+                result,
+                "frontend",
+                "Next.js"
+            );
         }
 
         // Nuxt
         if (
-            html.includes("__nuxt") ||
-            scripts.some((src) =>
-                src.includes("_nuxt")
+            this.htmlHas(
+                html,
+                [
+                    "__nuxt",
+                    "/_nuxt/",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "/_nuxt/",
+                ]
             )
         ) {
-            result.frontend.push("Nuxt.js");
+            this.add(
+                result,
+                "frontend",
+                "Nuxt.js"
+            );
         }
 
         // Angular
         if (
-            html.includes("ng-version") ||
-            html.includes("ng-app") ||
-            scripts.some((src) =>
-                src.includes("angular")
+            domMarkers?.angular ||
+            this.htmlHas(
+                html,
+                [
+                    "ng-version",
+                    "ng-app",
+                    "_nghost",
+                    "_ngcontent",
+                ]
+            ) ||
+            this.hasAny(
+                scripts,
+                [
+                    "angular",
+                ]
             )
         ) {
-            result.frontend.push("Angular");
+            this.add(
+                result,
+                "frontend",
+                "Angular"
+            );
+        }
+
+        // Vue
+        if (
+            domMarkers?.vue ||
+            this.htmlHas(
+                html,
+                [
+                    "data-v-",
+                    "__vue__",
+                    "v-cloak",
+                    "v-if",
+                    "v-for",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "vue.runtime",
+                    "vue.global",
+                    "/vue/",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "frontend",
+                "Vue.js"
+            );
         }
 
         // Svelte
         if (
-            html.includes("__svelte") ||
-            scripts.some((src) =>
-                src.includes("svelte")
+            domMarkers?.svelte ||
+            this.htmlHas(
+                html,
+                [
+                    "svelte-",
+                    "__svelte",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "svelte",
+                ]
             )
         ) {
-            result.frontend.push("Svelte");
+            this.add(
+                result,
+                "frontend",
+                "Svelte"
+            );
         }
 
         // Astro
         if (
-            html.includes("astro-island") ||
-            html.includes("astro-root") ||
-            scripts.some((src) =>
-                src.includes("astro")
+            this.htmlHas(
+                html,
+                [
+                    "astro-island",
+                    "astro-root",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "/_astro/",
+                ]
             )
         ) {
-            result.frontend.push("Astro");
+            this.add(
+                result,
+                "frontend",
+                "Astro"
+            );
+        }
+
+        // React
+        if (
+            domMarkers?.react ||
+            this.htmlHas(
+                html,
+                [
+                    "data-reactroot",
+                    "__reactfiber",
+                    "__reactprops",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "react.production",
+                    "react-dom",
+                    "/react/",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "frontend",
+                "React"
+            );
+        }
+
+        // React detection from common bundler output.
+        if (
+            !result.frontend.includes(
+                "React"
+            ) &&
+            this.hasAny(
+                scripts,
+                [
+                    "react-dom",
+                    "react.production",
+                    "react.development",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "frontend",
+                "React"
+            );
+        }
+
+        // jQuery
+        if (
+            this.hasAny(
+                resources,
+                [
+                    "jquery",
+                    "jquery.min.js",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "frontend",
+                "jQuery"
+            );
+        }
+
+        // Alpine.js
+        if (
+            this.htmlHas(
+                html,
+                [
+                    "x-data",
+                    "x-bind",
+                    "x-model",
+                    "x-show",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "alpine",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "frontend",
+                "Alpine.js"
+            );
         }
     }
 
-    detectCMS(result, html, scripts) {
+    detectCMS(
+        result,
+        html,
+        scripts,
+        resources,
+        metaText
+    ) {
+
         // WordPress
         if (
-            html.includes("wp-content") ||
-            html.includes("wp-includes") ||
-            scripts.some((src) =>
-                src.includes("wp-content")
+            this.htmlHas(
+                html,
+                [
+                    "wp-content",
+                    "wp-includes",
+                    "wp-json",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "/wp-content/",
+                    "/wp-includes/",
+                ]
+            ) ||
+            metaText.includes(
+                "wordpress"
             )
         ) {
-            result.cms.push("WordPress");
+            this.add(
+                result,
+                "cms",
+                "WordPress"
+            );
         }
 
         // Shopify
         if (
-            html.includes("cdn.shopify.com") ||
-            html.includes("shopify") ||
-            scripts.some((src) =>
-                src.includes("cdn.shopify.com")
+            this.htmlHas(
+                html,
+                [
+                    "cdn.shopify.com",
+                    "shopify.theme",
+                    "shopifyanalytics",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "cdn.shopify.com",
+                    "shopifycdn",
+                ]
             )
         ) {
-            result.cms.push("Shopify");
+            this.add(
+                result,
+                "cms",
+                "Shopify"
+            );
         }
 
         // Wix
         if (
-            html.includes("wix.com") ||
-            html.includes("wixstatic") ||
-            scripts.some((src) =>
-                src.includes("wixstatic")
+            this.htmlHas(
+                html,
+                [
+                    "wixstatic.com",
+                    "wix-code-sdk",
+                    "wix.com",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "wixstatic.com",
+                    "wix.com",
+                ]
             )
         ) {
-            result.cms.push("Wix");
+            this.add(
+                result,
+                "cms",
+                "Wix"
+            );
         }
 
         // Squarespace
         if (
-            html.includes("squarespace") ||
-            scripts.some((src) =>
-                src.includes("squarespace")
+            this.htmlHas(
+                html,
+                [
+                    "squarespace",
+                    "static1.squarespace.com",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "squarespace.com",
+                ]
             )
         ) {
-            result.cms.push("Squarespace");
-        }
-
-        // Drupal
-        if (
-            html.includes("drupal") ||
-            html.includes(
-                "sites/default/files"
-            )
-        ) {
-            result.cms.push("Drupal");
-        }
-
-        // Joomla
-        if (
-            html.includes("joomla") ||
-            html.includes("/media/jui/")
-        ) {
-            result.cms.push("Joomla");
+            this.add(
+                result,
+                "cms",
+                "Squarespace"
+            );
         }
 
         // Webflow
         if (
-            html.includes("webflow") ||
-            scripts.some((src) =>
-                src.includes("webflow")
+            this.htmlHas(
+                html,
+                [
+                    "webflow",
+                    "data-wf-page",
+                    "data-wf-site",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "webflow.com",
+                    "website-files.com",
+                ]
             )
         ) {
-            result.cms.push("Webflow");
+            this.add(
+                result,
+                "cms",
+                "Webflow"
+            );
+        }
+
+        // Drupal
+        if (
+            this.htmlHas(
+                html,
+                [
+                    "drupal-settings-json",
+                    "drupal.js",
+                    "sites/default/files",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "/sites/default/files/",
+                    "/modules/",
+                ]
+            ) ||
+            metaText.includes(
+                "drupal"
+            )
+        ) {
+            this.add(
+                result,
+                "cms",
+                "Drupal"
+            );
+        }
+
+        // Joomla
+        if (
+            this.htmlHas(
+                html,
+                [
+                    "/media/jui/",
+                    "/media/system/",
+                    "joomla",
+                ]
+            ) ||
+            metaText.includes(
+                "joomla"
+            )
+        ) {
+            this.add(
+                result,
+                "cms",
+                "Joomla"
+            );
         }
 
         // Ghost
         if (
-            html.includes("ghost.io") ||
-            html.includes("/ghost/")
+            this.htmlHas(
+                html,
+                [
+                    "ghost.io",
+                    "ghost.org",
+                    'generator" content="ghost',
+                ]
+            ) ||
+            metaText.includes(
+                "ghost"
+            )
         ) {
-            result.cms.push("Ghost");
+            this.add(
+                result,
+                "cms",
+                "Ghost"
+            );
         }
     }
 
-    detectCSS(result, html, scripts) {
+    detectCSS(
+        result,
+        html,
+        stylesheets,
+        resources,
+        attributes
+    ) {
+
         // Tailwind CSS
+        const tailwindSignals =
+            attributes.filter(
+                (value) =>
+                    /(^|\s)(sm|md|lg|xl|2xl):/.test(
+                        value
+                    ) ||
+                    /(^|\s)(flex|grid|items-|justify-|space-|text-|bg-|px-|py-|mx-|my-|rounded-|shadow-)/.test(
+                        value
+                    )
+            ).length;
+
         if (
-            html.includes("tailwind") ||
-            scripts.some((src) =>
-                src.includes("tailwind")
-            )
+            this.hasAny(
+                stylesheets,
+                [
+                    "tailwind",
+                    "tailwindcss",
+                ]
+            ) ||
+            tailwindSignals >= 5
         ) {
-            result.css.push(
+            this.add(
+                result,
+                "css",
                 "Tailwind CSS"
             );
         }
 
         // Bootstrap
         if (
-            html.includes("bootstrap") ||
-            scripts.some((src) =>
-                src.includes("bootstrap")
+            this.hasAny(
+                stylesheets,
+                [
+                    "bootstrap",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "bootstrap.min.css",
+                    "bootstrap.bundle",
+                ]
+            ) ||
+            this.htmlHas(
+                html,
+                [
+                    "bootstrap.min.css",
+                    "bootstrap.bundle",
+                ]
             )
         ) {
-            result.css.push(
+            this.add(
+                result,
+                "css",
                 "Bootstrap"
             );
         }
 
         // Bulma
         if (
-            html.includes("bulma")
+            this.hasAny(
+                stylesheets,
+                [
+                    "bulma",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "bulma.min.css",
+                ]
+            )
         ) {
-            result.css.push("Bulma");
+            this.add(
+                result,
+                "css",
+                "Bulma"
+            );
         }
 
         // Material UI
         if (
-            html.includes("material-ui") ||
-            html.includes("mui-") ||
-            scripts.some((src) =>
-                src.includes("material-ui")
+            this.htmlHas(
+                html,
+                [
+                    "mui-",
+                    "material-ui",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "material-ui",
+                    "@mui",
+                ]
             )
         ) {
-            result.css.push(
+            this.add(
+                result,
+                "css",
                 "Material UI"
             );
         }
 
         // Foundation
         if (
-            html.includes(
-                "foundation.min.css"
+            this.hasAny(
+                stylesheets,
+                [
+                    "foundation",
+                ]
             ) ||
-            html.includes(
-                "foundation-css"
+            this.hasAny(
+                resources,
+                [
+                    "foundation.min.css",
+                ]
             )
         ) {
-            result.css.push(
+            this.add(
+                result,
+                "css",
                 "Foundation"
+            );
+        }
+
+        // Chakra UI
+        if (
+            this.htmlHas(
+                html,
+                [
+                    "chakra-",
+                ]
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "@chakra-ui",
+                    "chakra-ui",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "css",
+                "Chakra UI"
             );
         }
     }
 
-    detectAnalytics(result, scripts) {
+    detectAnalytics(
+        result,
+        scripts,
+        html
+    ) {
+
         // Google Analytics
         if (
-            scripts.some(
-                (src) =>
-                    src.includes(
-                        "google-analytics.com"
-                    ) ||
-                    src.includes(
-                        "googletagmanager.com/gtag"
-                    )
+            this.hasAny(
+                scripts,
+                [
+                    "google-analytics.com",
+                    "googletagmanager.com/gtag",
+                    "gtag/js",
+                ]
+            ) ||
+            html.includes(
+                "google-analytics"
             )
         ) {
-            result.analytics.push(
+            this.add(
+                result,
+                "analytics",
                 "Google Analytics"
             );
         }
 
         // Google Tag Manager
         if (
-            scripts.some((src) =>
-                src.includes(
-                    "googletagmanager.com/gtm.js"
-                )
+            this.hasAny(
+                scripts,
+                [
+                    "googletagmanager.com/gtm.js",
+                    "googletagmanager.com/gtm",
+                ]
+            ) ||
+            html.includes(
+                "googletagmanager.com/ns.html"
             )
         ) {
-            result.analytics.push(
+            this.add(
+                result,
+                "analytics",
                 "Google Tag Manager"
             );
         }
 
         // Facebook Pixel
         if (
-            scripts.some((src) =>
-                src.includes(
-                    "connect.facebook.net"
-                )
+            this.hasAny(
+                scripts,
+                [
+                    "connect.facebook.net",
+                    "facebook.com/tr",
+                ]
+            ) ||
+            html.includes(
+                "fbq("
             )
         ) {
-            result.analytics.push(
+            this.add(
+                result,
+                "analytics",
                 "Facebook Pixel"
             );
         }
 
         // Hotjar
         if (
-            scripts.some((src) =>
-                src.includes(
-                    "hotjar.com"
-                )
+            this.hasAny(
+                scripts,
+                [
+                    "hotjar.com",
+                    "static.hotjar.com",
+                ]
             )
         ) {
-            result.analytics.push(
+            this.add(
+                result,
+                "analytics",
                 "Hotjar"
+            );
+        }
+
+        // Microsoft Clarity
+        if (
+            this.hasAny(
+                scripts,
+                [
+                    "clarity.ms",
+                ]
+            ) ||
+            html.includes(
+                "clarity("
+            )
+        ) {
+            this.add(
+                result,
+                "analytics",
+                "Microsoft Clarity"
             );
         }
 
         // Mixpanel
         if (
-            scripts.some(
-                (src) =>
-                    src.includes(
-                        "mixpanel.com"
-                    ) ||
-                    src.includes(
-                        "cdn.mxpnl.com"
-                    )
+            this.hasAny(
+                scripts,
+                [
+                    "mixpanel.com",
+                    "cdn.mxpnl.com",
+                ]
             )
         ) {
-            result.analytics.push(
+            this.add(
+                result,
+                "analytics",
                 "Mixpanel"
             );
         }
 
         // Segment
         if (
-            scripts.some((src) =>
-                src.includes(
-                    "cdn.segment.com"
-                )
+            this.hasAny(
+                scripts,
+                [
+                    "cdn.segment.com",
+                    "segment.io",
+                ]
             )
         ) {
-            result.analytics.push(
+            this.add(
+                result,
+                "analytics",
                 "Segment"
+            );
+        }
+
+        // Plausible
+        if (
+            this.hasAny(
+                scripts,
+                [
+                    "plausible.io",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "analytics",
+                "Plausible"
             );
         }
     }
 
-    detectHosting(result, headers) {
+    detectHosting(
+        result,
+        headers,
+        resources
+    ) {
+
         const server =
             headers["server"] || "";
 
@@ -387,65 +1129,164 @@ class TechStackService {
 
         // Vercel
         if (
-            server.includes("vercel") ||
             headers["x-vercel-id"] ||
-            poweredBy.includes("vercel")
+            server.includes("vercel") ||
+            poweredBy.includes("vercel") ||
+            this.hasAny(
+                resources,
+                [
+                    "vercel.app",
+                ]
+            )
         ) {
-            result.hosting.push(
+            this.add(
+                result,
+                "hosting",
                 "Vercel"
             );
         }
 
         // Netlify
         if (
+            headers["x-nf-request-id"] ||
             server.includes("netlify") ||
-            headers["x-nf-request-id"]
+            this.hasAny(
+                resources,
+                [
+                    "netlify.app",
+                ]
+            )
         ) {
-            result.hosting.push(
+            this.add(
+                result,
+                "hosting",
                 "Netlify"
             );
         }
 
         // Cloudflare
         if (
+            headers["cf-ray"] ||
             server.includes("cloudflare") ||
-            headers["cf-ray"]
+            headers["cf-cache-status"]
         ) {
-            result.hosting.push(
+            this.add(
+                result,
+                "hosting",
                 "Cloudflare"
             );
         }
 
-        // AWS
+        // AWS / CloudFront
         if (
-            via.includes("cloudfront") ||
-            server.includes("amazons3") ||
-            headers["x-amz-cf-id"]
+            headers["x-amz-cf-id"] ||
+            headers["x-amz-cf-pop"] ||
+            via.includes(
+                "cloudfront"
+            ) ||
+            server.includes(
+                "amazons3"
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "cloudfront.net",
+                    "amazonaws.com",
+                ]
+            )
         ) {
-            result.hosting.push("AWS");
-        }
-
-        // GitHub Pages
-        if (
-            server.includes("github.com") ||
-            headers["x-github-request-id"]
-        ) {
-            result.hosting.push(
-                "GitHub Pages"
+            this.add(
+                result,
+                "hosting",
+                "AWS"
             );
         }
 
         // Firebase
         if (
-            server.includes("firebase")
+            server.includes(
+                "firebase"
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "firebaseapp.com",
+                    "web.app",
+                ]
+            )
         ) {
-            result.hosting.push(
+            this.add(
+                result,
+                "hosting",
                 "Firebase"
+            );
+        }
+
+        // GitHub Pages
+        if (
+            headers["x-github-request-id"] ||
+            server.includes(
+                "github.com"
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "github.io",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "hosting",
+                "GitHub Pages"
+            );
+        }
+
+        // Render
+        if (
+            server.includes(
+                "render"
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "onrender.com",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "hosting",
+                "Render"
+            );
+        }
+
+        // Railway
+        if (
+            this.hasAny(
+                resources,
+                [
+                    "railway.app",
+                    "up.railway.app",
+                ]
+            )
+        ) {
+            this.add(
+                result,
+                "hosting",
+                "Railway"
             );
         }
     }
 
-    detectBackend(result, headers) {
+    detectBackend(
+        result,
+        headers,
+        html,
+        resources,
+        metaText
+    ) {
+
         const poweredBy =
             headers["x-powered-by"] || "";
 
@@ -455,18 +1296,36 @@ class TechStackService {
         // PHP
         if (
             poweredBy.includes("php") ||
-            headers["x-php-version"]
+            headers["x-php-version"] ||
+            this.hasAny(
+                resources,
+                [
+                    ".php",
+                ]
+            )
         ) {
-            result.backend.push("PHP");
+            this.add(
+                result,
+                "backend",
+                "PHP"
+            );
         }
 
         // Express / Node.js
         if (
             poweredBy.includes(
                 "express"
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "express",
+                ]
             )
         ) {
-            result.backend.push(
+            this.add(
+                result,
+                "backend",
                 "Express (Node.js)"
             );
         }
@@ -477,41 +1336,69 @@ class TechStackService {
                 "asp.net"
             ) ||
             headers["x-aspnet-version"] ||
-            headers["x-aspnetmvc-version"]
+            headers[
+                "x-aspnetmvc-version"
+            ] ||
+            this.hasAny(
+                resources,
+                [
+                    ".aspx",
+                    "__viewstate",
+                ]
+            )
         ) {
-            result.backend.push(
+            this.add(
+                result,
+                "backend",
                 "ASP.NET"
             );
         }
 
         // Nginx
         if (
-            server.includes("nginx")
+            server.includes(
+                "nginx"
+            )
         ) {
-            result.backend.push(
+            this.add(
+                result,
+                "backend",
                 "Nginx"
             );
         }
 
         // Apache
         if (
-            server.includes("apache")
+            server.includes(
+                "apache"
+            )
         ) {
-            result.backend.push(
+            this.add(
+                result,
+                "backend",
                 "Apache"
             );
         }
 
-        // Django / Python
+        // Django
         if (
             poweredBy.includes(
                 "django"
             ) ||
             server.includes(
                 "wsgiserver"
+            ) ||
+            this.hasAny(
+                resources,
+                [
+                    "django",
+                    "csrfmiddlewaretoken",
+                ]
             )
         ) {
-            result.backend.push(
+            this.add(
+                result,
+                "backend",
                 "Django (Python)"
             );
         }
@@ -521,12 +1408,70 @@ class TechStackService {
             poweredBy.includes(
                 "rails"
             ) ||
-            headers["x-runtime"]
+            headers["x-runtime"] ||
+            this.hasAny(
+                resources,
+                [
+                    "/assets/",
+                ]
+            ) &&
+            html.includes(
+                "csrf-token"
+            )
         ) {
-            result.backend.push(
+            this.add(
+                result,
+                "backend",
                 "Ruby on Rails"
             );
         }
+
+        // Laravel
+        if (
+            this.hasAny(
+                resources,
+                [
+                    "laravel",
+                ]
+            ) ||
+            html.includes(
+                "laravel_session"
+            )
+        ) {
+            this.add(
+                result,
+                "backend",
+                "Laravel (PHP)"
+            );
+        }
+
+        // ASP.NET generator
+        if (
+            metaText.includes(
+                "asp.net"
+            )
+        ) {
+            this.add(
+                result,
+                "backend",
+                "ASP.NET"
+            );
+        }
+    }
+
+    removeDuplicates(result) {
+
+        Object.keys(result).forEach(
+            (category) => {
+
+                result[category] =
+                    [
+                        ...new Set(
+                            result[category]
+                        ),
+                    ];
+            }
+        );
     }
 }
 

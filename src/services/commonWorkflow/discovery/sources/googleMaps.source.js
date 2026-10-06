@@ -1,6 +1,5 @@
 import scraperConfig from "../../shared/config.js";
 import browserManager from "../../shared/browser.js";
-import { randomDelay } from "../../shared/utils.js";
 
 import GoogleMapsParser from "../googleMaps.parser.js";
 

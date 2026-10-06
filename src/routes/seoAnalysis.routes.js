@@ -1,7 +1,7 @@
 import express from "express";
 import { getAuth } from "@clerk/express";
 
-import WebsiteAnalysis from "../services/analyzers/websiteAnalysis/websiteAnalysis.js";
+import SEOAnalysis from "../services/analyzers/seoAnalysis/seoAnalysis.js";
 import CommonWorkflowService from "../services/commonWorkflow/commonWorkflow.service.js";
 
 import UserModel from "../models/user.model.js";
@@ -11,23 +11,32 @@ import AnalysisModel from "../models/analysis.model.js";
 const router = express.Router();
 
 router.post("/", async (req, res) => {
+
     try {
-        const { userId: clerkUserId } = getAuth(req);
+
+        const { userId: clerkUserId } =
+            getAuth(req);
 
         if (!clerkUserId) {
+
             return res.status(401).json({
                 success: false,
                 message: "Unauthorized.",
             });
+
         }
 
-        const { googleMapsLink } = req.body;
+        const { googleMapsLink } =
+            req.body;
 
         if (!googleMapsLink) {
+
             return res.status(400).json({
                 success: false,
-                message: "Google Maps link is required.",
+                message:
+                    "Google Maps link is required.",
             });
+
         }
 
         const user =
@@ -36,10 +45,13 @@ router.post("/", async (req, res) => {
             );
 
         if (!user) {
+
             return res.status(404).json({
                 success: false,
-                message: "User not found.",
+                message:
+                    "User not found.",
             });
+
         }
 
         const business =
@@ -49,10 +61,13 @@ router.post("/", async (req, res) => {
             );
 
         if (!business) {
+
             return res.status(404).json({
                 success: false,
-                message: "Business not found.",
+                message:
+                    "Business not found.",
             });
+
         }
 
         const contactInfo =
@@ -61,25 +76,30 @@ router.post("/", async (req, res) => {
             );
 
         if (!contactInfo?.website) {
+
             return res.status(400).json({
                 success: false,
-                message: "Website not found.",
+                message:
+                    "Website not found.",
             });
+
         }
 
         const result =
-            await WebsiteAnalysis.analyze(
+            await SEOAnalysis.analyze(
                 contactInfo.website
             );
 
         if (!result.success) {
+
             return res.status(500).json({
                 success: false,
                 message:
                     result.message ||
-                    "Website analysis failed.",
+                    "SEO analysis failed.",
                 ...result,
             });
+
         }
 
         const analysis =
@@ -96,8 +116,9 @@ router.post("/", async (req, res) => {
         });
 
     } catch (error) {
+
         console.error(
-            "Website Analysis Error:",
+            "SEO Analysis Error:",
             error
         );
 
@@ -107,7 +128,9 @@ router.post("/", async (req, res) => {
                 error.message ||
                 "Internal Server Error.",
         });
+
     }
+
 });
 
 export default router;
