@@ -478,141 +478,149 @@ class BusinessController {
 
     }
 
+// =================================================
+// Enrich Single Business
+// =================================================
 
-    // =================================================
-    // Enrich Single Business
-    // =================================================
+async enrichBusiness(req, res) {
 
-    async enrichBusiness(req, res) {
+    try {
+
+        const {
+            businessId
+        } = req.params;
+
+        const { userId } =
+            getAuth(req);
+
+        if (!userId) {
+
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized."
+            });
+
+        }
+
+        const user =
+            await UserModel.getUserByClerkId(
+                userId
+            );
+
+        if (!user) {
+
+            return res.status(404).json({
+                success: false,
+                message: "User not found."
+            });
+
+        }
+
+        const business =
+            await BusinessModel.getBusinessById(
+                businessId,
+                user.id
+            );
+
+        if (!business) {
+
+            return res.status(404).json({
+                success: false,
+                message: "Business not found."
+            });
+
+        }
+
+        if (!business.google_maps_link) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "This business has no Google Maps link to enrich from."
+            });
+
+        }
+
+        let contactInfo = {
+            phone: null,
+            website: null,
+        };
 
         try {
 
-            const {
-                businessId
-            } = req.params;
-
-
-            const { userId } =
-                getAuth(req);
-
-
-            if (!userId) {
-
-                return res.status(401).json({
-
-                    success: false,
-
-                    message:
-                        "Unauthorized."
-
-                });
-
-            }
-
-
-            const user =
-                await UserModel.getUserByClerkId(
-                    userId
-                );
-
-
-            if (!user) {
-
-                return res.status(404).json({
-
-                    success: false,
-
-                    message:
-                        "User not found."
-
-                });
-
-            }
-
-
-            const business =
-                await BusinessModel.getBusinessById(
-                    businessId,
-                    user.id
-                );
-
-
-            if (!business) {
-
-                return res.status(404).json({
-
-                    success: false,
-
-                    message:
-                        "Business not found."
-
-                });
-
-            }
-
-
-            if (!business.google_maps_link) {
-
-                return res.status(400).json({
-
-                    success: false,
-
-                    message:
-                        "This business has no Google Maps link to enrich from."
-
-                });
-
-            }
-
-            
-
-            // =================================================
-            // Existing Contact Enrichment Pipeline
-            // =================================================
-
-            const contactInfo =
+            contactInfo =
                 await CommonWorkflowService.getBusinessContact(
                     business.google_maps_link
                 );
 
-
-            const updatedBusiness =
-                await BusinessModel.updateBusinessContact(
-                    businessId,
-                    contactInfo
-                );
-
-
-            return res.status(200).json({
-
-                success: true,
-
-                business:
-                    updatedBusiness
-
-            });
-
+            console.log(
+                `[Enrich API] ${businessId} | phone=${contactInfo?.phone ? "yes" : "no"} | website=${contactInfo?.website ? "yes" : "no"}`
+            );
 
         } catch (error) {
 
             console.error(
-                "Enrich Business Error:",
-                error
+                `[Enrich API] Scrape failed for ${businessId}:`,
+                error?.message || error
             );
 
+            contactInfo = {
+                phone: null,
+                website: null,
+            };
+        }
+
+        const enrichedBusiness = {
+            ...business,
+            ...contactInfo,
+        };
+
+        res.status(200).json({
+            success: true,
+            business: enrichedBusiness
+        });
+
+        if (
+            contactInfo.phone ||
+            contactInfo.website
+        ) {
+
+            BusinessModel
+                .updateBusinessContact(
+                    businessId,
+                    contactInfo
+                )
+                .catch((error) => {
+
+                    console.error(
+                        `[Enrich API] DB update failed for ${businessId}:`,
+                        error?.message || error
+                    );
+
+                });
+
+        }
+
+    } catch (error) {
+
+        console.error(
+            "Enrich Business Error:",
+            error
+        );
+
+        if (!res.headersSent) {
 
             return res.status(500).json({
-
                 success: false,
-
                 message:
                     "Internal Server Error."
-
             });
 
         }
 
     }
+
+}
  
 
     // =================================================
