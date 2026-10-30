@@ -5,7 +5,6 @@ import cors from "cors";
 import errorMiddleware from "./middlewares/error.middleware.js";
 
 import authRoutes from "./routes/auth.routes.js";
-import serviceRoutes from "./routes/service.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 
@@ -93,10 +92,6 @@ app.use(
     authRoutes
 );
 
-app.use(
-    "/api/services",
-    serviceRoutes
-);
 
 app.use(
     "/api/user",

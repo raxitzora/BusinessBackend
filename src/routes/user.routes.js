@@ -9,14 +9,5 @@ router.get(
     authMiddleware,
     UserController.getProfile
 );
-router.get(
-    "/services",
-    authMiddleware,
-    UserController.getUserServices
-);
-router.post(
-    "/services",
-    authMiddleware,
-    UserController.saveUserServices
-);
+
 export default router;
